@@ -1235,16 +1235,11 @@
 		name: "tm_brain_component"
 		properties: [
 			{
-				name: "frequency"
-				type: "float"
-			}
-			{
-				name: "amplitude"
+				name: "input_angle"
 				type: "float"
 			}
 		]
 		default: {
-			amplitude: 1
 		}
 	}
 	{
@@ -1405,24 +1400,6 @@
 				type: "bool"
 			}
 		]
-	}
-	{
-		name: "tm_comp_brain"
-		properties: [
-			{
-				name: "frequency"
-				type: "float"
-			}
-			{
-				name: "amplitude"
-				type: "float"
-			}
-		]
-		default: {
-			__type: "tm_custom_component"
-			frequency: 0
-			amplitude: 0
-		}
 	}
 	{
 		name: "tm_compressed_animation"
@@ -1769,10 +1746,6 @@
 				type: "float"
 			}
 		]
-		default: {
-			frequency: 1
-			amplitude: 1
-		}
 	}
 	{
 		name: "tm_dcc_asset"

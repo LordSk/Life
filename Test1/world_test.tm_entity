@@ -134,13 +134,6 @@ children: [
 					__prototype_uuid: "96d0eaa1-ac1b-c7f2-35e4-cf6452ceec99"
 				}
 			}
-			{
-				__type: "tm_brain_component"
-				__uuid: "8fd8836d-cd13-0c3e-aaa8-9db73f1c342f"
-				__prototype_type: "tm_brain_component"
-				__prototype_uuid: "ad194c9b-f324-d238-67c0-3c9cd87c59aa"
-				frequency: 6
-			}
 		]
 	}
 ]

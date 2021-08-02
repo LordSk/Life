@@ -25,7 +25,11 @@ components: [
 	}
 	{
 		__type: "tm_brain_component"
-		__uuid: "ad194c9b-f324-d238-67c0-3c9cd87c59aa"
+		__uuid: "9b060d49-2ae4-7692-6f98-1a002aee95f0"
+	}
+	{
+		__type: "tm_position_tracking_component"
+		__uuid: "e51bc904-7606-0e4d-d36f-0dd5bc3b48b2"
 	}
 ]
 children: [

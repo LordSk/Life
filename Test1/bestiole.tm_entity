@@ -23,6 +23,10 @@ components: [
 		asset: "d850fdc9-9411-d5c7-e23e-cbf48cae4089"
 		asset__type: "tm_dcc_asset"
 	}
+	{
+		__type: "tm_brain_component"
+		__uuid: "ad194c9b-f324-d238-67c0-3c9cd87c59aa"
+	}
 ]
 children: [
 	{

@@ -161,7 +161,7 @@ components: [
 							value: {
 								__type: "tm_uint32_t"
 								__uuid: "7b1b8f32-80b0-0d10-9176-b193d11514e1"
-								uint32_t: 32
+								uint32_t: 8
 							}
 							public: true
 							order: 2
@@ -175,7 +175,7 @@ components: [
 							value: {
 								__type: "tm_uint32_t"
 								__uuid: "fb757bce-3f81-6e4f-986b-e32f3278204b"
-								uint32_t: 32
+								uint32_t: 8
 							}
 							public: true
 							order: 3
@@ -190,7 +190,7 @@ components: [
 							value: {
 								__type: "tm_creation_graph_resource_reference"
 								__uuid: "b29d76e7-0a50-eea3-fed9-c0d637f51b64"
-								creation_graph: "3e850d74-b4d9-ceb8-4fb4-6fee1f7ddf67"
+								creation_graph: "13498a1c-ad08-a5f5-00d9-f0b894d7fc18"
 								node_type_hash: "f09329374a5bbd5e"
 							}
 							public: true
@@ -201,6 +201,10 @@ components: [
 				}
 			}
 		}
+	}
+	{
+		__type: "tm_position_tracking_component"
+		__uuid: "5e03d16f-0b04-23e7-620d-140c0170a0ce"
 	}
 ]
 __asset_uuid: "472b170b-50f8-58e1-fa71-bf91ad3e289c"

@@ -1232,6 +1232,22 @@
 		]
 	}
 	{
+		name: "tm_brain_component"
+		properties: [
+			{
+				name: "frequency"
+				type: "float"
+			}
+			{
+				name: "amplitude"
+				type: "float"
+			}
+		]
+		default: {
+			amplitude: 1
+		}
+	}
+	{
 		name: "tm_camera_component"
 		properties: [
 			{
@@ -1389,6 +1405,24 @@
 				type: "bool"
 			}
 		]
+	}
+	{
+		name: "tm_comp_brain"
+		properties: [
+			{
+				name: "frequency"
+				type: "float"
+			}
+			{
+				name: "amplitude"
+				type: "float"
+			}
+		]
+		default: {
+			__type: "tm_custom_component"
+			frequency: 0
+			amplitude: 0
+		}
 	}
 	{
 		name: "tm_compressed_animation"
@@ -1735,6 +1769,10 @@
 				type: "float"
 			}
 		]
+		default: {
+			frequency: 1
+			amplitude: 1
+		}
 	}
 	{
 		name: "tm_dcc_asset"
@@ -4667,6 +4705,11 @@
 				name: "z"
 				type: "float"
 			}
+		]
+	}
+	{
+		name: "tm_position_tracking_component"
+		properties: [
 		]
 	}
 	{

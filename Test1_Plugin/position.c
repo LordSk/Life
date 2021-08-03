@@ -1,3 +1,4 @@
+#include "position.h"
 #include <foundation/api_registry.h>
 #include <foundation/carray.inl>
 #include <foundation/log.h>
@@ -34,9 +35,24 @@ typedef double f64;
 #define TM_TT_TYPE__POSITION_TRACKING_COMPONENT "tm_position_tracking_component"
 #define TM_TT_TYPE_HASH__POSITION_TRACKING_COMPONENT TM_STATIC_HASH("tm_position_tracking_component", 0x1a03e3b9605ec002ULL)
 
+enum {
+	TM_TT_PROP__POSITION_TRACKING_COMPONENT__TYPE, // uint32_t
+};
+
+enum {
+	TRACKING_TYPE_BOUFFE = 0,
+	TRACKING_TYPE_BESTIOLE,
+	_TRACKING_TYPE_COUNT,
+};
+
+static const char *tracking_type_names[] = {
+	TM_LOCALIZE_LATER("Bouffe"),
+	TM_LOCALIZE_LATER("Bestiole"),
+};
+
 typedef struct tm_position_tracking_component_t
 {
-	float input_angle;
+	uint32_t type;
 } tm_position_tracking_component_t;
 
 enum {
@@ -51,7 +67,7 @@ enum {
 
 typedef struct EntityPositionPair
 {
-	tm_entity_t e;
+	uint32_t type;
 	f32 x, y;
 } EntityPositionPair;
 
@@ -81,8 +97,8 @@ typedef struct PositionTrackingManager
 
 static void PositionTrackingManager_Init(PositionTrackingManager* g);
 static void PositionTrackingManager_Clear(PositionTrackingManager* g);
-static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth);
-static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth);
+static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth);
+static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth);
 
 static void PositionTrackingManager_Init(PositionTrackingManager* g)
 {
@@ -101,7 +117,7 @@ static void PositionTrackingManager_Clear(PositionTrackingManager* g)
 	g->cellCount = 1;
 }
 
-static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth)
+static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth)
 {
 	ASSERT(!cell->children[0]);
 
@@ -111,7 +127,7 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 		g->freeBlock = g->freeBlock->next;
 		cell->block->next = 0x0;
 		cell->block->count = 1;
-		cell->block->list[0] = (EntityPositionPair){ e, entityPos.x, entityPos.z };
+		cell->block->list[0] = (EntityPositionPair){ type, entityPos.x, entityPos.z };
 	}
 	else {
 		EntityBlock* block = cell->block;
@@ -119,12 +135,12 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 
 		//ASSERT(entityPos.x >= rect.x && entityPos.x < rect.x + rect.w);
 		//ASSERT(entityPos.z >= rect.y && entityPos.z < rect.y + rect.h);
-		block->list[block->count++] = (EntityPositionPair){ e, entityPos.x, entityPos.z };
+		block->list[block->count++] = (EntityPositionPair){ type, entityPos.x, entityPos.z };
 
 		if(depth < DEPTH_MAX) {
 			// split
 			if(block->count == BLOCK_ENTITY_CAPACITY) {
-				//TM_PROFILER_BEGIN_LOCAL_SCOPE(Split);
+				TM_PROFILER_BEGIN_LOCAL_SCOPE(Split);
 
 				ASSERT(g->cellCount+4 <= CELL_CAPACITY);
 				const int firstID = g->cellCount;
@@ -149,7 +165,7 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 							.w = rect.w / 2.f,
 							.h = rect.h / 2.f,
 						},
-						pair->e,
+						pair->type,
 						(tm_vec3_t){ pair->x, 0, pair->y },
 						depth + 1
 					);
@@ -159,12 +175,12 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 				g->freeBlock = cell->block;
 				cell->block = 0x0;
 
-				//TM_PROFILER_END_LOCAL_SCOPE(Split);
+				TM_PROFILER_END_LOCAL_SCOPE(Split);
 			}
 		}
 		else {
 			if(block->count == BLOCK_ENTITY_CAPACITY) {
-				//TM_PROFILER_BEGIN_LOCAL_SCOPE(AddBlock);
+				TM_PROFILER_BEGIN_LOCAL_SCOPE(AddBlock);
 
 				ASSERT(g->freeBlock);
 				block->next = g->freeBlock;
@@ -172,13 +188,13 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 				block->next->next = 0x0;
 				block->next->count = 0;
 
-				//TM_PROFILER_END_LOCAL_SCOPE(AddBlock);
+				TM_PROFILER_END_LOCAL_SCOPE(AddBlock);
 			}
 		}
 	}
 }
 
-static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth)
+static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth)
 {
 	const tm_vec3_t pos = entityPos;
 
@@ -199,10 +215,10 @@ static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* 
 		cell = cell->children[iz * 2 + ix];
 	}
 
-	PositionTrackingManager_AddToCell(g, cell, rect, e, entityPos, depth);
+	PositionTrackingManager_AddToCell(g, cell, rect, type, entityPos, depth);
 }
 
-static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, tm_entity_t e, tm_vec3_t entityPos)
+static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, uint32_t type, tm_vec3_t entityPos)
 {
 	const f32 minWorldX = -WORLD_WIDTH/2;
 	const f32 minWorldZ = -WORLD_HEIGHT/2;
@@ -213,7 +229,7 @@ static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, tm_e
 	ASSERT(entityPos.z > minWorldZ);
 	ASSERT(entityPos.z < maxWorldZ);
 
-	PositionTrackingManager_AddToLeaf(g, g->cells, (tm_rect_t){ minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT }, e, entityPos, 0);
+	PositionTrackingManager_AddToLeaf(g, g->cells, (tm_rect_t){ minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT }, type, entityPos, 0);
 }
 
 static void DebugDrawCell(struct tm_primitive_drawer_buffer_t *pbuf, struct tm_primitive_drawer_buffer_t *vbuf, Cell* cell, tm_rect_t rect)
@@ -256,8 +272,13 @@ static void DebugDrawCell(struct tm_primitive_drawer_buffer_t *pbuf, struct tm_p
 
 				const uint32_t indices[3] = { 0, 1, 2 };
 
+				const tm_color_srgb_t colors[_TRACKING_TYPE_COUNT] = {
+					(tm_color_srgb_t){ 80, 255, 80, 255 },
+					(tm_color_srgb_t){ 80, 80, 255, 255 },
+				};
+
 				tm_primitive_drawer_api->stroke_triangles(pbuf, vbuf, tm_mat44_identity(), tri, 3, indices, 3,
-					(tm_color_srgb_t){ 255, 255, 255, 255 },
+					colors[pair->type],
 					1, TM_PRIMITIVE_DRAWER_DEPTH_TEST_DISABLED);
 			}
 
@@ -291,15 +312,38 @@ static tm_ci_editor_ui_i* editor_aspect = &(tm_ci_editor_ui_i){
 
 static void truth__create_types(struct tm_the_truth_o* tt)
 {
-	const tm_tt_type_t position_tracking_component_type = tm_the_truth_api->create_object_type(tt, TM_TT_TYPE__POSITION_TRACKING_COMPONENT, 0x0, 0);
-	tm_the_truth_api->set_aspect(tt, position_tracking_component_type, TM_CI_EDITOR_UI, editor_aspect);
+	tm_the_truth_property_definition_t custom_component_properties[] = {
+		[TM_TT_PROP__POSITION_TRACKING_COMPONENT__TYPE] = {
+			.name = "type",
+			.type = TM_THE_TRUTH_PROPERTY_TYPE_UINT32_T,
+			.editor = TM_THE_TRUTH__EDITOR__UINT32_T__ENUM,
+			.enum_editor = (tm_the_truth_editor_enum_t) {
+				.count = _TRACKING_TYPE_COUNT,
+				.names = tracking_type_names
+			}
+		}
+	};
+	
+	const tm_tt_type_t custom_component_type = tm_the_truth_api->create_object_type(tt,
+		TM_TT_TYPE__POSITION_TRACKING_COMPONENT,
+		custom_component_properties,
+		TM_ARRAY_COUNT(custom_component_properties));
+
+	const tm_tt_id_t default_object = tm_the_truth_api->quick_create_object(tt,
+		TM_TT_NO_UNDO_SCOPE,
+		TM_TT_TYPE_HASH__POSITION_TRACKING_COMPONENT,
+		TM_TT_PROP__POSITION_TRACKING_COMPONENT__TYPE, TRACKING_TYPE_BOUFFE,
+		-1);
+
+	tm_the_truth_api->set_default_object(tt, custom_component_type, default_object);
+	tm_the_truth_api->set_aspect(tt, custom_component_type, TM_CI_EDITOR_UI, editor_aspect);
 }
 
 static bool component__load_asset(tm_component_manager_o* man, tm_entity_t e, void* c_vp, const tm_the_truth_o* tt, tm_tt_id_t asset)
 {
-	//struct tm_position_tracking_component_t* c = c_vp;
-	//const tm_the_truth_object_o* asset_r = tm_tt_read(tt, asset);
-	//c->input_angle = tm_the_truth_api->get_float(tt, asset_r, TM_TT_PROP__POSITION_TRACKING_COMPONENT__INPUT_ANGLE);
+	tm_position_tracking_component_t* c = c_vp;
+	const tm_the_truth_object_o* asset_r = tm_tt_read(tt, asset);
+	c->type = tm_the_truth_api->get_uint32_t(tt, asset_r, TM_TT_PROP__POSITION_TRACKING_COMPONENT__TYPE);
 	return true;
 }
 
@@ -351,10 +395,11 @@ static void engine_build_quad_tree(tm_engine_o* inst, tm_engine_update_set_t* da
 	PositionTrackingManager_Clear(man);
 
 	for(tm_engine_update_array_t* a = data->arrays; a < data->arrays + data->num_arrays; ++a) {
+		tm_position_tracking_component_t* position_tracking = a->components[0];
 		tm_transform_component_t* transform = a->components[1];
 		
 		for(uint32_t i = 0; i < a->n; ++i) {
-			PositionTrackingManager_PlaceEntity(man, a->entities[i], transform[i].world.pos);
+			PositionTrackingManager_PlaceEntity(man, position_tracking[i].type, transform[i].world.pos);
 		}
 	}
 

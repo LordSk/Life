@@ -42,6 +42,7 @@ static tm_simulate_state_o *start(tm_simulate_start_args_t *args)
 	// Setup stuff at beginning of simulation.
 	{
 		tm_tt_id_t asset_bestiole = tm_the_truth_assets_api->asset_object_from_path(args->tt, args->asset_root, "bestiole.entity");
+		//tm_tt_id_t asset_bestiole = tm_the_truth_assets_api->asset_object_from_path(args->tt, args->asset_root, "ant.entity");
 
 		enum { count = 500 };
 		tm_entity_t entities[count];

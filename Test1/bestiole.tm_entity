@@ -1,6 +1,6 @@
 __type: "tm_entity"
 __uuid: "9111fbcc-26c2-2814-92b2-842b70f8aec2"
-name: "bestiole1"
+name: "bestiole"
 components: [
 	{
 		__type: "tm_transform_component"
@@ -25,11 +25,12 @@ components: [
 	}
 	{
 		__type: "tm_brain_component"
-		__uuid: "9b060d49-2ae4-7692-6f98-1a002aee95f0"
+		__uuid: "3d3eeed7-cf6c-5ff9-0e20-a1afcef1e401"
 	}
 	{
 		__type: "tm_position_tracking_component"
-		__uuid: "e51bc904-7606-0e4d-d36f-0dd5bc3b48b2"
+		__uuid: "5224d16a-9b9c-a0fe-57df-63f24620c2ab"
+		type: 1
 	}
 ]
 children: [
@@ -164,6 +165,12 @@ children: [
 				]
 			}
 		]
+	}
+]
+child_sort_values: [
+	{
+		__uuid: "d316553b-5c41-fdd0-314b-197a9558f93b"
+		entity: "5e759efb-c44a-e565-d7da-618e1857518f"
 	}
 ]
 __asset_uuid: "800d8dac-8454-0c96-2eec-19a72f25883d"

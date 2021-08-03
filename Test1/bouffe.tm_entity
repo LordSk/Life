@@ -204,7 +204,7 @@ components: [
 	}
 	{
 		__type: "tm_position_tracking_component"
-		__uuid: "5e03d16f-0b04-23e7-620d-140c0170a0ce"
+		__uuid: "c9afbd9f-76dc-a508-2bda-9ac392274f8b"
 	}
 ]
 __asset_uuid: "472b170b-50f8-58e1-fa71-bf91ad3e289c"

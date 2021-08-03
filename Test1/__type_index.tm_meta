@@ -1234,13 +1234,7 @@
 	{
 		name: "tm_brain_component"
 		properties: [
-			{
-				name: "input_angle"
-				type: "float"
-			}
 		]
-		default: {
-		}
 	}
 	{
 		name: "tm_camera_component"
@@ -4683,7 +4677,13 @@
 	{
 		name: "tm_position_tracking_component"
 		properties: [
+			{
+				name: "type"
+				type: "uint32_t"
+			}
 		]
+		default: {
+		}
 	}
 	{
 		name: "tm_properties_settings"

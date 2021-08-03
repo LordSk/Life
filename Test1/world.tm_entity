@@ -302,7 +302,6 @@ child_sort_values: [
 	{
 		__uuid: "8b6a9a55-6127-fe2c-04e9-bf40a89c9686"
 		entity: "fa66c420-241d-a762-90c8-52cdde952dee"
-		value: 1
 	}
 	{
 		__uuid: "89f67633-b0c5-085e-9173-07a6714659ff"
@@ -311,6 +310,18 @@ child_sort_values: [
 	{
 		__uuid: "e2194aa5-4545-fac2-0567-20a4a80fb8b3"
 		entity: "e8fa9ae2-9176-ad2c-0b95-50ce566adf59"
+		value: 1
+	}
+	{
+		__uuid: "da160585-264e-05c9-3465-41518ea05e00"
+		value: 2
+	}
+	{
+		__uuid: "7a025939-ab7c-054a-75da-6ee8e7cbfd53"
+		value: 2
+	}
+	{
+		__uuid: "cf764645-9f20-061e-fde1-cd1c331721ce"
 		value: 2
 	}
 ]

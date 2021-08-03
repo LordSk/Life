@@ -8,6 +8,7 @@
 #include <foundation/the_truth.h>
 #include <foundation/error.h>
 #include <foundation/camera.h>
+#include <foundation/profiler.h>
 
 #include <plugins/entity/entity.h>
 #include <plugins/entity/transform_component.h>
@@ -23,6 +24,7 @@ static struct tm_the_truth_api* tm_the_truth_api;
 static struct tm_localizer_api* tm_localizer_api;
 static struct tm_error_api* tm_error_api;
 static struct tm_primitive_drawer_api* tm_primitive_drawer_api;
+static struct tm_profiler_api* tm_profiler_api;
 // -------------------------------------
 
 typedef float f32;
@@ -41,16 +43,16 @@ enum {
 	WORLD_WIDTH = 1000,
 	WORLD_HEIGHT = 1000,
 	
-	CELL_CAPACITY = 1024,
-	BLOCK_CAPACITY = 2048,
+	CELL_CAPACITY = 4096,
+	BLOCK_CAPACITY = 8192,
 	BLOCK_ENTITY_CAPACITY = 64,
-	DEPTH_MAX = 5
+	DEPTH_MAX = 6
 };
 
 typedef struct EntityPositionPair
 {
 	tm_entity_t e;
-	tm_vec3_t pos;
+	f32 x, y;
 } EntityPositionPair;
 
 typedef struct EntityBlock
@@ -79,7 +81,8 @@ typedef struct PositionTrackingManager
 
 static void PositionTrackingManager_Init(PositionTrackingManager* g);
 static void PositionTrackingManager_Clear(PositionTrackingManager* g);
-static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth);
+static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth);
+static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth);
 
 static void PositionTrackingManager_Init(PositionTrackingManager* g)
 {
@@ -98,29 +101,9 @@ static void PositionTrackingManager_Clear(PositionTrackingManager* g)
 	g->cellCount = 1;
 }
 
-static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth)
+static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth)
 {
-	if(cell->children[0]) {
-		const tm_vec3_t pos = entityPos;
-		int ix = (int)((pos.x - rect.x) / (rect.w/2.f));
-		int iz = (int)((pos.z - rect.y) / (rect.h/2.f));
-		ASSERT(ix == 0 || ix == 1);
-		ASSERT(iz == 0 || iz == 1);
-		PositionTrackingManager_AddToCell(
-			g,
-			cell->children[iz * 2 + ix],
-			(tm_rect_t){
-				.x = rect.x + rect.w/2.f * ix,
-				.y = rect.y + rect.h/2.f * iz,
-				.w = rect.w / 2.f,
-				.h = rect.h / 2.f,
-			},
-			e,
-			pos,
-			depth + 1
-		);
-		return;
-	}
+	ASSERT(!cell->children[0]);
 
 	if(cell->block == 0x0) {
 		ASSERT(g->freeBlock);
@@ -128,61 +111,95 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 		g->freeBlock = g->freeBlock->next;
 		cell->block->next = 0x0;
 		cell->block->count = 1;
-		cell->block->list[0] = (EntityPositionPair){ e, entityPos };
-		return;
-	}
-
-	EntityBlock* block = cell->block;
-	while(block->next) block = block->next;
-
-	//ASSERT(entityPos.x >= rect.x && entityPos.x < rect.x + rect.w);
-	//ASSERT(entityPos.z >= rect.y && entityPos.z < rect.y + rect.h);
-	block->list[block->count++] = (EntityPositionPair){ e, entityPos };
-
-	if(depth < DEPTH_MAX) {
-		// split
-		if(block->count == BLOCK_ENTITY_CAPACITY) {
-			ASSERT(g->cellCount+4 <= CELL_CAPACITY);
-			cell->children[0] = &g->cells[g->cellCount++];
-			cell->children[1] = &g->cells[g->cellCount++];
-			cell->children[2] = &g->cells[g->cellCount++];
-			cell->children[3] = &g->cells[g->cellCount++];
-
-			for(int i = 0; i < BLOCK_ENTITY_CAPACITY; i++) {
-				const tm_vec3_t pos = block->list[i].pos;
-				int ix = (int)((pos.x - rect.x) / (rect.w/2.f));
-				int iz = (int)((pos.z - rect.y) / (rect.h/2.f));
-				ASSERT(ix == 0 || ix == 1);
-				ASSERT(iz == 0 || iz == 1);
-				PositionTrackingManager_AddToCell(
-					g,
-					cell->children[iz * 2 + ix],
-					(tm_rect_t){
-						.x = rect.x + rect.w/2.f * ix,
-						.y = rect.y + rect.h/2.f * iz,
-						.w = rect.w / 2.f,
-						.h = rect.h / 2.f,
-					},
-					block->list[i].e,
-					pos,
-					depth + 1
-				);
-			}
-
-			cell->block->next = g->freeBlock;
-			g->freeBlock = cell->block;
-			g->freeBlock->count = 0;
-			cell->block = 0x0;
-		}
+		cell->block->list[0] = (EntityPositionPair){ e, entityPos.x, entityPos.z };
 	}
 	else {
-		if(block->count == BLOCK_ENTITY_CAPACITY) {
-			ASSERT(g->freeBlock);
-			block->next = g->freeBlock;
-			g->freeBlock = g->freeBlock->next;
-			block->next->next = 0x0;
+		EntityBlock* block = cell->block;
+		while(block->next) block = block->next;
+
+		//ASSERT(entityPos.x >= rect.x && entityPos.x < rect.x + rect.w);
+		//ASSERT(entityPos.z >= rect.y && entityPos.z < rect.y + rect.h);
+		block->list[block->count++] = (EntityPositionPair){ e, entityPos.x, entityPos.z };
+
+		if(depth < DEPTH_MAX) {
+			// split
+			if(block->count == BLOCK_ENTITY_CAPACITY) {
+				//TM_PROFILER_BEGIN_LOCAL_SCOPE(Split);
+
+				ASSERT(g->cellCount+4 <= CELL_CAPACITY);
+				const int firstID = g->cellCount;
+				g->cellCount += 4;
+				cell->children[0] = &g->cells[firstID];
+				cell->children[1] = &g->cells[firstID+1];
+				cell->children[2] = &g->cells[firstID+2];
+				cell->children[3] = &g->cells[firstID+3];
+
+				for(int i = 0; i < BLOCK_ENTITY_CAPACITY; i++) {
+					const EntityPositionPair* pair = &block->list[i];
+					int ix = (int)((pair->x - rect.x) / (rect.w/2.f));
+					int iz = (int)((pair->y - rect.y) / (rect.h/2.f));
+					ASSERT(ix == 0 || ix == 1);
+					ASSERT(iz == 0 || iz == 1);
+					PositionTrackingManager_AddToCell(
+						g,
+						cell->children[iz * 2 + ix],
+						(tm_rect_t){
+							.x = rect.x + rect.w/2.f * ix,
+							.y = rect.y + rect.h/2.f * iz,
+							.w = rect.w / 2.f,
+							.h = rect.h / 2.f,
+						},
+						pair->e,
+						(tm_vec3_t){ pair->x, 0, pair->y },
+						depth + 1
+					);
+				}
+
+				cell->block->next = g->freeBlock;
+				g->freeBlock = cell->block;
+				cell->block = 0x0;
+
+				//TM_PROFILER_END_LOCAL_SCOPE(Split);
+			}
+		}
+		else {
+			if(block->count == BLOCK_ENTITY_CAPACITY) {
+				//TM_PROFILER_BEGIN_LOCAL_SCOPE(AddBlock);
+
+				ASSERT(g->freeBlock);
+				block->next = g->freeBlock;
+				g->freeBlock = g->freeBlock->next;
+				block->next->next = 0x0;
+				block->next->count = 0;
+
+				//TM_PROFILER_END_LOCAL_SCOPE(AddBlock);
+			}
 		}
 	}
+}
+
+static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, tm_vec3_t entityPos, int depth)
+{
+	const tm_vec3_t pos = entityPos;
+
+	while(cell->children[0]) {
+		int ix = (int)((pos.x - rect.x) / (rect.w/2.f));
+		int iz = (int)((pos.z - rect.y) / (rect.h/2.f));
+		ASSERT(ix == 0 || ix == 1);
+		ASSERT(iz == 0 || iz == 1);
+
+		rect = (tm_rect_t){
+			.x = rect.x + rect.w/2.f * ix,
+			.y = rect.y + rect.h/2.f * iz,
+			.w = rect.w / 2.f,
+			.h = rect.h / 2.f,
+		};
+
+		depth++;
+		cell = cell->children[iz * 2 + ix];
+	}
+
+	PositionTrackingManager_AddToCell(g, cell, rect, e, entityPos, depth);
 }
 
 static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, tm_entity_t e, tm_vec3_t entityPos)
@@ -196,7 +213,7 @@ static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, tm_e
 	ASSERT(entityPos.z > minWorldZ);
 	ASSERT(entityPos.z < maxWorldZ);
 
-	PositionTrackingManager_AddToCell(g, g->cells, (tm_rect_t){ minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT }, e, entityPos, 0);
+	PositionTrackingManager_AddToLeaf(g, g->cells, (tm_rect_t){ minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT }, e, entityPos, 0);
 }
 
 static void DebugDrawCell(struct tm_primitive_drawer_buffer_t *pbuf, struct tm_primitive_drawer_buffer_t *vbuf, Cell* cell, tm_rect_t rect)
@@ -216,7 +233,7 @@ static void DebugDrawCell(struct tm_primitive_drawer_buffer_t *pbuf, struct tm_p
 	};
 	
 	tm_primitive_drawer_api->stroke_lines(pbuf, vbuf, tm_mat44_identity(), vertices, 4, (tm_color_srgb_t){ 255, 0, 0, 255 },
-		2, TM_PRIMITIVE_DRAWER_DEPTH_TEST_DISABLED);
+		1, TM_PRIMITIVE_DRAWER_DEPTH_TEST_DISABLED);
 
 	if(cell->children[0]) {
 		DebugDrawCell(pbuf, vbuf, cell->children[0], (tm_rect_t){ rect.x, rect.y, rect.w/2.f, rect.h/2.f });
@@ -224,28 +241,43 @@ static void DebugDrawCell(struct tm_primitive_drawer_buffer_t *pbuf, struct tm_p
 		DebugDrawCell(pbuf, vbuf, cell->children[2], (tm_rect_t){ rect.x, rect.y + rect.h/2.f, rect.w/2.f, rect.h/2.f });
 		DebugDrawCell(pbuf, vbuf, cell->children[3], (tm_rect_t){ rect.x + rect.w/2.f, rect.y + rect.h/2.f, rect.w/2.f, rect.h/2.f });
 	}
+#if 1
 	else {
 		EntityBlock* block = cell->block;
 		while(block) {
 			for(uint32_t i = 0; i < block->count; i++) {
-				tm_mat44_t mat;
-				tm_mat44_from_translation(&mat, block->list[i].pos);
-				tm_primitive_drawer_api->stroke_sphere(pbuf, &mat, 1, 5, 5, (tm_color_srgb_t){ 255, 255, 255, 255 },
+				const EntityPositionPair* pair = &block->list[i];
+
+				const tm_vec3_t tri[3] = {
+					(tm_vec3_t) { pair->x - 0.5f, 0, pair->y - 0.5f },
+					(tm_vec3_t) { pair->x + 0.5f, 0, pair->y - 0.5f },
+					(tm_vec3_t) { pair->x, 0, pair->y + 0.5f },
+				};
+
+				const uint32_t indices[3] = { 0, 1, 2 };
+
+				tm_primitive_drawer_api->stroke_triangles(pbuf, vbuf, tm_mat44_identity(), tri, 3, indices, 3,
+					(tm_color_srgb_t){ 255, 255, 255, 255 },
 					1, TM_PRIMITIVE_DRAWER_DEPTH_TEST_DISABLED);
 			}
 
 			block = block->next;
 		}
 	}
+#endif
 }
 
-static void component__debug_draw(tm_component_manager_o *manager, tm_entity_t e[], const void *data[], uint32_t n,
+static void dbgdraw_quad_tree(tm_component_manager_o *manager, tm_entity_t e[], const void *data[], uint32_t n,
 	struct tm_primitive_drawer_buffer_t *pbuf, struct tm_primitive_drawer_buffer_t *vbuf,
 	tm_allocator_i *allocator, const tm_camera_t *camera, tm_rect_t viewport)
 {
+	TM_PROFILER_BEGIN_FUNC_SCOPE();
+
 	PositionTrackingManager* man = (PositionTrackingManager*)manager;
 	tm_primitive_drawer_api->reserve(pbuf, 4 * 8192 * 1024, vbuf, 4 * 8192 * 1024, allocator);
 	DebugDrawCell(pbuf, vbuf, man->cells, (tm_rect_t){ -WORLD_WIDTH/2, -WORLD_HEIGHT/2, WORLD_WIDTH, WORLD_HEIGHT });
+
+	TM_PROFILER_END_FUNC_SCOPE();
 }
 
 static const char* component__category(void)
@@ -302,15 +334,17 @@ static void component__create(struct tm_entity_context_o* ctx)
 		.load_asset = component__load_asset,
 		.manager = (tm_component_manager_o*)manager,
 		.destroy = component__manager_destroy,
-		.debug_draw = component__debug_draw
+		.debug_draw = dbgdraw_quad_tree
 	};
 	
 	tm_entity_api->register_component(ctx, &component);
 }
 
 // Runs on (position_tracking_component, transform_component)
-static void engine_update__position_tracking_component(tm_engine_o* inst, tm_engine_update_set_t* data)
+static void engine_build_quad_tree(tm_engine_o* inst, tm_engine_update_set_t* data)
 {
+	TM_PROFILER_BEGIN_FUNC_SCOPE();
+
 	struct tm_entity_context_o* ctx = (struct tm_entity_context_o*)inst;
 	PositionTrackingManager* man = (PositionTrackingManager*)tm_entity_api->component_manager_by_hash(ctx, TM_TT_TYPE_HASH__POSITION_TRACKING_COMPONENT);
 
@@ -325,9 +359,10 @@ static void engine_update__position_tracking_component(tm_engine_o* inst, tm_eng
 	}
 
 	//TM_LOG("Cell count = %d", man->cellCount);
+	TM_PROFILER_END_FUNC_SCOPE();
 }
 
-static bool engine_filter__position_tracking_component(tm_engine_o* inst, const tm_component_type_t* components, uint32_t num_components, const tm_component_mask_t* mask)
+static bool engine_filter_build_quadtree(tm_engine_o* inst, const tm_component_type_t* components, uint32_t num_components, const tm_component_mask_t* mask)
 {
 	return tm_entity_mask_has_component(mask, components[0]) && tm_entity_mask_has_component(mask, components[1]);
 }
@@ -343,8 +378,8 @@ static void component__register_engine(struct tm_entity_context_o* ctx)
 		.num_components = 2,
 		.components = { position_tracking_comp, transform_component },
 		.writes = { true, false },
-		.update = engine_update__position_tracking_component,
-		.filter = engine_filter__position_tracking_component,
+		.update = engine_build_quad_tree,
+		.filter = engine_filter_build_quadtree,
 		.inst = (tm_engine_o*)ctx,
 	};
 	tm_entity_api->register_engine(ctx, &position_tracking_component_engine);
@@ -360,6 +395,7 @@ void load_position_c(struct tm_api_registry_api* reg, bool load)
 	tm_localizer_api = reg->get(TM_LOCALIZER_API_NAME);
 	tm_error_api = reg->get(TM_ERROR_API_NAME);
 	tm_primitive_drawer_api = reg->get(TM_PRIMITIVE_DRAWER_API_NAME);
+	tm_profiler_api = reg->get(TM_PROFILER_API_NAME);
 	
 	tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_CREATE_TYPES_INTERFACE_NAME, truth__create_types);
 	tm_add_or_remove_implementation(reg, load, TM_ENTITY_CREATE_COMPONENT_INTERFACE_NAME, component__create);

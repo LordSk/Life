@@ -1,4 +1,5 @@
 #include "position.h"
+#include <float.h>
 #include <foundation/api_registry.h>
 #include <foundation/carray.inl>
 #include <foundation/log.h>
@@ -32,17 +33,8 @@ typedef float f32;
 typedef double f64;
 #define ASSERT(cond) TM_FATAL_ASSERT_FORMAT(cond, tm_error_api->log, #cond)
 
-#define TM_TT_TYPE__POSITION_TRACKING_COMPONENT "tm_position_tracking_component"
-#define TM_TT_TYPE_HASH__POSITION_TRACKING_COMPONENT TM_STATIC_HASH("tm_position_tracking_component", 0x1a03e3b9605ec002ULL)
-
 enum {
 	TM_TT_PROP__POSITION_TRACKING_COMPONENT__TYPE, // uint32_t
-};
-
-enum {
-	TRACKING_TYPE_BOUFFE = 0,
-	TRACKING_TYPE_BESTIOLE,
-	_TRACKING_TYPE_COUNT,
 };
 
 static const char *tracking_type_names[] = {
@@ -67,6 +59,7 @@ enum {
 
 typedef struct EntityPositionPair
 {
+	tm_entity_t e;
 	uint32_t type;
 	f32 x, y;
 } EntityPositionPair;
@@ -97,8 +90,8 @@ typedef struct PositionTrackingManager
 
 static void PositionTrackingManager_Init(PositionTrackingManager* g);
 static void PositionTrackingManager_Clear(PositionTrackingManager* g);
-static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth);
-static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth);
+static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, tm_entity_t e, uint32_t type, tm_vec3_t entityPos, int depth);
+static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, uint32_t type, tm_vec3_t entityPos, int depth);
 
 static void PositionTrackingManager_Init(PositionTrackingManager* g)
 {
@@ -117,7 +110,7 @@ static void PositionTrackingManager_Clear(PositionTrackingManager* g)
 	g->cellCount = 1;
 }
 
-static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth)
+static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, tm_entity_t e, uint32_t type, tm_vec3_t entityPos, int depth)
 {
 	ASSERT(!cell->children[0]);
 
@@ -127,7 +120,7 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 		g->freeBlock = g->freeBlock->next;
 		cell->block->next = 0x0;
 		cell->block->count = 1;
-		cell->block->list[0] = (EntityPositionPair){ type, entityPos.x, entityPos.z };
+		cell->block->list[0] = (EntityPositionPair){ e, type, entityPos.x, entityPos.z };
 	}
 	else {
 		EntityBlock* block = cell->block;
@@ -135,7 +128,7 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 
 		//ASSERT(entityPos.x >= rect.x && entityPos.x < rect.x + rect.w);
 		//ASSERT(entityPos.z >= rect.y && entityPos.z < rect.y + rect.h);
-		block->list[block->count++] = (EntityPositionPair){ type, entityPos.x, entityPos.z };
+		block->list[block->count++] = (EntityPositionPair){ e, type, entityPos.x, entityPos.z };
 
 		if(depth < DEPTH_MAX) {
 			// split
@@ -165,6 +158,7 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 							.w = rect.w / 2.f,
 							.h = rect.h / 2.f,
 						},
+						pair->e,
 						pair->type,
 						(tm_vec3_t){ pair->x, 0, pair->y },
 						depth + 1
@@ -194,7 +188,7 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 	}
 }
 
-static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, uint32_t type, tm_vec3_t entityPos, int depth)
+static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, uint32_t type, tm_vec3_t entityPos, int depth)
 {
 	const tm_vec3_t pos = entityPos;
 
@@ -215,10 +209,10 @@ static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* 
 		cell = cell->children[iz * 2 + ix];
 	}
 
-	PositionTrackingManager_AddToCell(g, cell, rect, type, entityPos, depth);
+	PositionTrackingManager_AddToCell(g, cell, rect, e, type, entityPos, depth);
 }
 
-static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, uint32_t type, tm_vec3_t entityPos)
+static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, tm_entity_t e, uint32_t type, tm_vec3_t entityPos)
 {
 	const f32 minWorldX = -WORLD_WIDTH/2;
 	const f32 minWorldZ = -WORLD_HEIGHT/2;
@@ -229,7 +223,72 @@ static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, uint
 	ASSERT(entityPos.z > minWorldZ);
 	ASSERT(entityPos.z < maxWorldZ);
 
-	PositionTrackingManager_AddToLeaf(g, g->cells, (tm_rect_t){ minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT }, type, entityPos, 0);
+	PositionTrackingManager_AddToLeaf(g, g->cells, (tm_rect_t){ minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT }, e, type, entityPos, 0);
+}
+
+ClosestEntity PositionTrackingManager_GetClosestEntity(PositionTrackingManager* g, tm_vec3_t from, uint32_t type, tm_entity_t notthis)
+{
+	// tree is empty
+	if(!g->cells[0].children[0]) return (ClosestEntity) { TM_NO_ENTITY, (tm_vec2_t){0} };
+
+	const f32 minWorldX = -WORLD_WIDTH/2;
+	const f32 minWorldZ = -WORLD_HEIGHT/2;
+	const f32 maxWorldX = WORLD_WIDTH/2;
+	const f32 maxWorldZ = WORLD_HEIGHT/2;
+	ASSERT(from.x > minWorldX);
+	ASSERT(from.x < maxWorldX);
+	ASSERT(from.z > minWorldZ);
+	ASSERT(from.z < maxWorldZ);
+
+	Cell* cell = g->cells;
+	tm_rect_t rect = { minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT };
+
+	while(!cell->block) {
+		int ix = (int)((from.x - rect.x) / (rect.w/2.f));
+		int iz = (int)((from.z - rect.y) / (rect.h/2.f));
+		ASSERT(ix == 0 || ix == 1);
+		ASSERT(iz == 0 || iz == 1);
+		
+		rect = (tm_rect_t){
+			.x = rect.x + rect.w/2.f * ix,
+			.y = rect.y + rect.h/2.f * iz,
+			.w = rect.w / 2.f,
+			.h = rect.h / 2.f,
+		};
+
+		cell = cell->children[iz * 2 + ix];
+	}
+
+	const tm_vec2_t from2 = { from.x, from.z };
+
+	tm_entity_t closest_e = { 0 };
+	f32 closest_dist = FLT_MAX;
+	tm_vec2_t closest_pos = { 0 };
+	
+	ASSERT(cell->block->count > 0);
+
+	const EntityBlock* block = cell->block;
+	while(block) {
+		for(uint32_t i = 0; i < block->count; i++) {
+			const EntityPositionPair* pair = &block->list[i];
+			if(pair->type != type) continue;
+			if(pair->e.u64 == notthis.u64) continue;
+
+			f32 d = tm_vec2_dist_sqr(from2, (tm_vec2_t){ pair->x, pair->y });
+			if(d < closest_dist) {
+				closest_dist = d;
+				closest_e = pair->e;
+				closest_pos = (tm_vec2_t){ pair->x, pair->y };
+			}
+		}
+
+		block = block->next;
+	}
+
+	return (ClosestEntity){
+		closest_e,
+		closest_pos
+	};
 }
 
 static void DebugDrawCell(struct tm_primitive_drawer_buffer_t *pbuf, struct tm_primitive_drawer_buffer_t *vbuf, Cell* cell, tm_rect_t rect)
@@ -385,7 +444,7 @@ static void component__create(struct tm_entity_context_o* ctx)
 }
 
 // Runs on (position_tracking_component, transform_component)
-static void engine_build_quad_tree(tm_engine_o* inst, tm_engine_update_set_t* data)
+static void engine_update_position_tracking(tm_engine_o* inst, tm_engine_update_set_t* data)
 {
 	TM_PROFILER_BEGIN_FUNC_SCOPE();
 
@@ -399,7 +458,7 @@ static void engine_build_quad_tree(tm_engine_o* inst, tm_engine_update_set_t* da
 		tm_transform_component_t* transform = a->components[1];
 		
 		for(uint32_t i = 0; i < a->n; ++i) {
-			PositionTrackingManager_PlaceEntity(man, position_tracking[i].type, transform[i].world.pos);
+			PositionTrackingManager_PlaceEntity(man, a->entities[i], position_tracking[i].type, transform[i].world.pos);
 		}
 	}
 
@@ -407,7 +466,7 @@ static void engine_build_quad_tree(tm_engine_o* inst, tm_engine_update_set_t* da
 	TM_PROFILER_END_FUNC_SCOPE();
 }
 
-static bool engine_filter_build_quadtree(tm_engine_o* inst, const tm_component_type_t* components, uint32_t num_components, const tm_component_mask_t* mask)
+static bool engine_filter_has_both_components(tm_engine_o* inst, const tm_component_type_t* components, uint32_t num_components, const tm_component_mask_t* mask)
 {
 	return tm_entity_mask_has_component(mask, components[0]) && tm_entity_mask_has_component(mask, components[1]);
 }
@@ -423,8 +482,8 @@ static void component__register_engine(struct tm_entity_context_o* ctx)
 		.num_components = 2,
 		.components = { position_tracking_comp, transform_component },
 		.writes = { true, false },
-		.update = engine_build_quad_tree,
-		.filter = engine_filter_build_quadtree,
+		.update = engine_update_position_tracking,
+		.filter = engine_filter_has_both_components,
 		.inst = (tm_engine_o*)ctx,
 	};
 	tm_entity_api->register_engine(ctx, &position_tracking_component_engine);

@@ -36,13 +36,13 @@ typedef double f64;
 
 enum
 {
-	INPUT_MOVE     = (1 << 0),
-	INPUT_CHOMP    = (1 << 1),
-	INPUT_MULTYPLY = (1 << 2),
+	ACTION_MOVE     = (1 << 0),
+	ACTION_CHOMP    = (1 << 1),
+	ACTION_MULTYPLY = (1 << 2),
 
-	NN_INPUT_COUNT = 2,
+	NN_INPUT_COUNT = 3,
 	NN_HIDDEN_COUNT = 8,
-	NN_OUPUT_COUNT = 4,
+	NN_OUPUT_COUNT = 2,
 };
 
 typedef struct NeuralNet
@@ -63,7 +63,7 @@ typedef struct tm_brain_component_t
 	float input_energy;
 	NeuralNet nn;
 	float output_angle;
-	uint32_t output_sb; // 1 bit == 1 action (move, chomp, multiply)
+	uint32_t output_actions; // 1 bit == 1 action (move, chomp, multiply)
 
 	tm_vec2_t _cachedPos;
 } tm_brain_component_t;
@@ -118,6 +118,11 @@ static void component__create(struct tm_entity_context_o* ctx)
 	tm_entity_api->register_component(ctx, &component);
 }
 
+static bool engine_filter_has_all_components_1(tm_engine_o* inst, const tm_component_type_t* components, uint32_t num_components, const tm_component_mask_t* mask)
+{
+	return tm_entity_mask_has_component(mask, components[0]);
+}
+
 static bool engine_filter_has_both_components(tm_engine_o* inst, const tm_component_type_t* components, uint32_t num_components, const tm_component_mask_t* mask)
 {
 	return tm_entity_mask_has_component(mask, components[0]) && tm_entity_mask_has_component(mask, components[1]);
@@ -147,15 +152,17 @@ static void engine_brain_apply_output(tm_engine_o* inst, tm_engine_update_set_t*
 	}
 	
 	for(tm_engine_update_array_t* a = data->arrays; a < data->arrays + data->num_arrays; ++a) {
-		tm_brain_component_t* brain = a->components[0];
+		const tm_brain_component_t* brain = a->components[0];
 		tm_transform_component_t* transform = a->components[1];
 		
 		for(uint32_t i = 0; i < a->n; ++i) {
-			transform[i].world.rot = tm_quaternion_from_rotation((tm_vec3_t){ 0, 1, 0 }, brain->output_angle - TM_PI/2.f);
-			transform[i].world.pos.x += (float)((double)cosf(brain->output_angle) * delta * 1.0);
-			transform[i].world.pos.z += (float)((double)sinf(-brain->output_angle) * delta * 1.0);
-			++transform[i].version;
-			tm_carray_temp_push(mod_transform, a->entities[i], ta);
+			if(brain[i].output_actions & ACTION_MOVE) {
+				transform[i].world.rot = tm_quaternion_from_rotation((tm_vec3_t){ 0, 1, 0 }, brain->output_angle - TM_PI/2.f);
+				transform[i].world.pos.x += (float)((double)cosf(brain->output_angle) * delta * 1.0);
+				transform[i].world.pos.z += (float)((double)sinf(-brain->output_angle) * delta * 1.0);
+				++transform[i].version;
+				tm_carray_temp_push(mod_transform, a->entities[i], ta);
+			}
 		}
 	}
 	
@@ -200,6 +207,62 @@ static void engine_brain_fetch_input(tm_engine_o* inst, tm_engine_update_set_t* 
 	TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
 }
 
+// Runs on (brain_component)
+static void engine_brain_think(tm_engine_o* inst, tm_engine_update_set_t* data)
+{
+	TM_INIT_TEMP_ALLOCATOR(ta);
+	
+	tm_entity_t* mod_transform = 0;
+	struct tm_entity_context_o* ctx = (struct tm_entity_context_o*)inst;
+	
+	for(tm_engine_update_array_t* a = data->arrays; a < data->arrays + data->num_arrays; ++a) {
+		const tm_entity_t* entities = a->entities;
+		tm_brain_component_t* brains = a->components[0];
+		
+		for(uint32_t i = 0; i < a->n; ++i) {
+			tm_brain_component_t* brain = &brains[i];
+			const f32* w0 = brain->nn.w0;
+			const f32* w1 = brain->nn.w1;
+			
+			f32 inputs[NN_INPUT_COUNT + 1] = {
+				brain->input_nearestFood.angle / TM_PI,
+				brain->input_nearestFood.dist / 100.f,
+				brain->input_energy,
+				1.0f, // bias
+			};
+			f32 hidden[NN_HIDDEN_COUNT + 1];
+			f32 output[NN_OUPUT_COUNT];
+
+			for(uint32_t h = 0; h < NN_HIDDEN_COUNT; h++) {
+				f32 sum = 0;
+				for(uint32_t in = 0; in < TM_ARRAY_COUNT(inputs); in++) {
+					sum += w0[TM_ARRAY_COUNT(inputs) * h + in] * inputs[in];
+				}
+				hidden[h] = sinf(sum);
+			}
+			hidden[NN_HIDDEN_COUNT] = 1.0f; // bias
+			
+			for(uint32_t o = 0; o < NN_OUPUT_COUNT; o++) {
+				f32 sum = 0;
+				for(uint32_t h = 0; h < TM_ARRAY_COUNT(hidden); h++) {
+					sum += w1[TM_ARRAY_COUNT(hidden) * o + h] * hidden[h];
+				}
+				output[o] = sinf(sum);
+			}
+			
+			brain->output_angle = output[0] * TM_PI;
+			brain->output_actions = 0 |
+				ACTION_MOVE & (output[1] > 0.0f);
+			
+			tm_carray_temp_push(mod_transform, entities[i], ta);
+		}
+	}
+	
+	tm_entity_api->notify(ctx, data->engine->components[0], mod_transform, (uint32_t)tm_carray_size(mod_transform));
+	
+	TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
+}
+
 static void component__register_engines(struct tm_entity_context_o* ctx)
 {
 	const tm_component_type_t brain_component = tm_entity_api->lookup_component_type(ctx, TM_TT_TYPE_HASH__BRAIN_COMPONENT);
@@ -229,6 +292,18 @@ static void component__register_engines(struct tm_entity_context_o* ctx)
 		.inst = (tm_engine_o*)ctx,
 	};
 	tm_entity_api->register_engine(ctx, &fetch_input);
+
+	const tm_engine_i think = {
+		.ui_name = "Brain think",
+		.hash  = TM_STATIC_HASH("BRAIN_THINK", 0xb082b56c0b602869ULL),
+		.num_components = 1,
+		.components = { brain_component },
+		.writes = { true },
+		.update = engine_brain_think,
+		.filter = engine_filter_has_all_components_1,
+		.inst = (tm_engine_o*)ctx,
+	};
+	tm_entity_api->register_engine(ctx, &think);
 }
 
 static void dbgdraw_brain_comp(tm_component_manager_o *manager, tm_entity_t e[], const void *data[], uint32_t n,

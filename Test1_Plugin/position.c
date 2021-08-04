@@ -101,13 +101,18 @@ static void PositionTrackingManager_Init(PositionTrackingManager* g)
 
 static void PositionTrackingManager_Clear(PositionTrackingManager* g)
 {
-	memset(g->blocks, 0x0, sizeof(g->blocks));
+	TM_PROFILER_BEGIN_FUNC_SCOPE();
+
+	//memset(g->blocks, 0x0, sizeof(g->blocks));
 	g->freeBlock = g->blocks;
 	for(EntityBlock* b = g->blocks + 1; b != g->blocks + BLOCK_CAPACITY; ++b) {
 		(b-1)->next = b;
 	}
-	memset(g->cells, 0x0, sizeof(g->cells));
+	//memset(g->cells, 0x0, sizeof(g->cells));
 	g->cellCount = 1;
+	g->cells[0] = (Cell){0};
+
+	TM_PROFILER_END_FUNC_SCOPE();
 }
 
 static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* cell, const tm_rect_t rect, tm_entity_t e, uint32_t type, tm_vec3_t entityPos, int depth)
@@ -142,6 +147,10 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 				cell->children[1] = &g->cells[firstID+1];
 				cell->children[2] = &g->cells[firstID+2];
 				cell->children[3] = &g->cells[firstID+3];
+				*cell->children[0] = (Cell){0};
+				*cell->children[1] = (Cell){0};
+				*cell->children[2] = (Cell){0};
+				*cell->children[3] = (Cell){0};
 
 				for(int i = 0; i < BLOCK_ENTITY_CAPACITY; i++) {
 					const EntityPositionPair* pair = &block->list[i];
@@ -190,6 +199,8 @@ static void PositionTrackingManager_AddToCell(PositionTrackingManager* g, Cell* 
 
 static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* cell, tm_rect_t rect, tm_entity_t e, uint32_t type, tm_vec3_t entityPos, int depth)
 {
+	//TM_PROFILER_BEGIN_FUNC_SCOPE();
+
 	const tm_vec3_t pos = entityPos;
 
 	while(cell->children[0]) {
@@ -210,6 +221,8 @@ static void PositionTrackingManager_AddToLeaf(PositionTrackingManager* g, Cell* 
 	}
 
 	PositionTrackingManager_AddToCell(g, cell, rect, e, type, entityPos, depth);
+
+	//TM_PROFILER_END_FUNC_SCOPE();
 }
 
 static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, tm_entity_t e, uint32_t type, tm_vec3_t entityPos)
@@ -261,7 +274,7 @@ ClosestEntity PositionTrackingManager_GetClosestEntity(PositionTrackingManager* 
 
 	const tm_vec2_t from2 = { from.x, from.z };
 
-	tm_entity_t closest_e = { 0 };
+	tm_entity_t closest_e = TM_NO_ENTITY;
 	f32 closest_dist = FLT_MAX;
 	tm_vec2_t closest_pos = { 0 };
 	
@@ -332,8 +345,8 @@ static void DebugDrawCell(struct tm_primitive_drawer_buffer_t *pbuf, struct tm_p
 				const uint32_t indices[3] = { 0, 1, 2 };
 
 				const tm_color_srgb_t colors[_TRACKING_TYPE_COUNT] = {
-					(tm_color_srgb_t){ 80, 255, 80, 255 },
-					(tm_color_srgb_t){ 80, 80, 255, 255 },
+					(tm_color_srgb_t){ 128, 255, 128, 255 },
+					(tm_color_srgb_t){ 128, 128, 255, 255 },
 				};
 
 				tm_primitive_drawer_api->stroke_triangles(pbuf, vbuf, tm_mat44_identity(), tri, 3, indices, 3,
@@ -453,14 +466,26 @@ static void engine_update_position_tracking(tm_engine_o* inst, tm_engine_update_
 
 	PositionTrackingManager_Clear(man);
 
-	for(tm_engine_update_array_t* a = data->arrays; a < data->arrays + data->num_arrays; ++a) {
-		tm_position_tracking_component_t* position_tracking = a->components[0];
-		tm_transform_component_t* transform = a->components[1];
-		
-		for(uint32_t i = 0; i < a->n; ++i) {
+	TM_PROFILER_BEGIN_LOCAL_SCOPE(_PlaceEntity);
+	const tm_engine_update_set_t* cdata = data;
+	for(const tm_engine_update_array_t* a = cdata->arrays; a < cdata->arrays + cdata->num_arrays; ++a) {
+		const tm_position_tracking_component_t* position_tracking = a->components[0];
+		const tm_transform_component_t* transform = a->components[1];
+
+		// unroll
+		uint32_t i = 0;
+		const uint32_t count4 = (a->n/4) * 4;
+		for(; i < count4; i += 4) {
+			PositionTrackingManager_PlaceEntity(man, a->entities[i], position_tracking[i].type, transform[i].world.pos);
+			PositionTrackingManager_PlaceEntity(man, a->entities[i+1], position_tracking[i+1].type, transform[i+1].world.pos);
+			PositionTrackingManager_PlaceEntity(man, a->entities[i+2], position_tracking[i+2].type, transform[i+2].world.pos);
+			PositionTrackingManager_PlaceEntity(man, a->entities[i+3], position_tracking[i+3].type, transform[i+3].world.pos);
+		}
+		for(; i < a->n; ++i) {
 			PositionTrackingManager_PlaceEntity(man, a->entities[i], position_tracking[i].type, transform[i].world.pos);
 		}
 	}
+	TM_PROFILER_END_LOCAL_SCOPE(_PlaceEntity);
 
 	//TM_LOG("Cell count = %d", man->cellCount);
 	TM_PROFILER_END_FUNC_SCOPE();

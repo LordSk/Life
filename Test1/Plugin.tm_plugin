@@ -1,6 +1,6 @@
 __type: "tm_plugin"
 __uuid: "546d379c-d85f-220f-7ae8-1dfe723857a3"
 import_on_change: true
-windows_dll_import_path: "C:\\Prog\\Projets\\Life\\Test1_Plugin\\bin\\Debug\\tm_test1.dll"
-windows_dll: "4aa18e7f5604c997"
+windows_dll_import_path: "C:\\Prog\\Projets\\Life\\Test1_Plugin\\bin\\Release\\tm_test1.dll"
+windows_dll: "7fd51727a1b6043e"
 __asset_uuid: "a9b072b1-e196-caf3-1756-cab73516b8a0"

@@ -1,4 +1,5 @@
 #include "position.h"
+#include "world.h"
 #include <float.h>
 #include <foundation/api_registry.h>
 #include <foundation/carray.inl>
@@ -48,10 +49,7 @@ typedef struct tm_position_tracking_component_t
 } tm_position_tracking_component_t;
 
 enum {
-	WORLD_WIDTH = 1000,
-	WORLD_HEIGHT = 1000,
-	
-	CELL_CAPACITY = 4096,
+	CELL_CAPACITY = 8192,
 	BLOCK_CAPACITY = 8192,
 	BLOCK_ENTITY_CAPACITY = 64,
 	DEPTH_MAX = 6
@@ -239,8 +237,44 @@ static void PositionTrackingManager_PlaceEntity(PositionTrackingManager* g, tm_e
 	PositionTrackingManager_AddToLeaf(g, g->cells, (tm_rect_t){ minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT }, e, type, entityPos, 0);
 }
 
+const Cell* PositionTrackingManager_GetLeaf(PositionTrackingManager* g, tm_vec2_t pos)
+{
+	if((int)pos.x < -WORLD_WIDTH/2) return 0x0;
+	if((int)pos.x >= WORLD_WIDTH/2) return 0x0;
+	if((int)pos.y < -WORLD_HEIGHT/2) return 0x0;
+	if((int)pos.y >= WORLD_HEIGHT/2) return 0x0;
+
+	const Cell* cell = g->cells;
+	tm_rect_t rect = (tm_rect_t){
+		-WORLD_WIDTH/2,
+		-WORLD_HEIGHT/2,
+		WORLD_WIDTH,
+		WORLD_HEIGHT
+	};
+	
+	while(cell->children[0]) {
+		int ix = (int)((pos.x - rect.x) / (rect.w/2.f));
+		int iz = (int)((pos.y - rect.y) / (rect.h/2.f));
+		ASSERT(ix == 0 || ix == 1);
+		ASSERT(iz == 0 || iz == 1);
+		
+		rect = (tm_rect_t){
+			.x = rect.x + rect.w/2.f * ix,
+			.y = rect.y + rect.h/2.f * iz,
+			.w = rect.w / 2.f,
+			.h = rect.h / 2.f,
+		};
+		
+		cell = cell->children[iz * 2 + ix];
+	}
+
+	return cell;
+}
+
 ClosestEntity PositionTrackingManager_GetClosestEntity(PositionTrackingManager* g, tm_vec3_t from, uint32_t type, tm_entity_t notthis)
 {
+	//TM_PROFILER_BEGIN_FUNC_SCOPE();
+
 	// tree is empty
 	if(!g->cells[0].children[0]) return (ClosestEntity) { TM_NO_ENTITY, (tm_vec2_t){0} };
 
@@ -253,15 +287,18 @@ ClosestEntity PositionTrackingManager_GetClosestEntity(PositionTrackingManager* 
 	ASSERT(from.z > minWorldZ);
 	ASSERT(from.z < maxWorldZ);
 
-	Cell* cell = g->cells;
+	const Cell* cell = g->cells;
+	const Cell* parent = cell;
 	tm_rect_t rect = { minWorldX, minWorldZ, WORLD_WIDTH, WORLD_HEIGHT };
+	tm_rect_t parentRect = rect;
 
-	while(!cell->block) {
+	while(cell->children[0]) {
 		int ix = (int)((from.x - rect.x) / (rect.w/2.f));
 		int iz = (int)((from.z - rect.y) / (rect.h/2.f));
 		ASSERT(ix == 0 || ix == 1);
 		ASSERT(iz == 0 || iz == 1);
 		
+		parentRect = rect;
 		rect = (tm_rect_t){
 			.x = rect.x + rect.w/2.f * ix,
 			.y = rect.y + rect.h/2.f * iz,
@@ -269,34 +306,55 @@ ClosestEntity PositionTrackingManager_GetClosestEntity(PositionTrackingManager* 
 			.h = rect.h / 2.f,
 		};
 
+		parent = cell;
 		cell = cell->children[iz * 2 + ix];
 	}
 
 	const tm_vec2_t from2 = { from.x, from.z };
 
+	const Cell* cellList[9] = { cell };
+
+	const f32 rectHW = rect.x + rect.w / 2.f;
+	const f32 rectHH = rect.y + rect.h / 2.f;
+	const f32 rectFW = rect.x + rect.w;
+	const f32 rectFH = rect.y + rect.h;
+	cellList[1] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rect.x - 1.0f, rectHH });
+	cellList[2] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rect.x - 1.0f, rect.y - 1.0f });
+	cellList[3] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rectHW, rect.y - 1.0f });
+	cellList[4] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rectFW + 1.0f, rect.y - 1.0f });
+	cellList[5] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rectFW + 1.0f, rectHH });
+	cellList[6] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rectFW + 1.0f, rectFH + 1.0f });
+	cellList[7] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rectHW, rectFH + 1.0f });
+	cellList[8] = PositionTrackingManager_GetLeaf(g, (tm_vec2_t){ rect.x - 1.0f, rectFH + 1.0f });
+
 	tm_entity_t closest_e = TM_NO_ENTITY;
 	f32 closest_dist = FLT_MAX;
 	tm_vec2_t closest_pos = { 0 };
 	
-	ASSERT(cell->block->count > 0);
-
-	const EntityBlock* block = cell->block;
-	while(block) {
-		for(uint32_t i = 0; i < block->count; i++) {
-			const EntityPositionPair* pair = &block->list[i];
-			if(pair->type != type) continue;
-			if(pair->e.u64 == notthis.u64) continue;
-
-			f32 d = tm_vec2_dist_sqr(from2, (tm_vec2_t){ pair->x, pair->y });
-			if(d < closest_dist) {
-				closest_dist = d;
-				closest_e = pair->e;
-				closest_pos = (tm_vec2_t){ pair->x, pair->y };
+	for(uint32_t n = 0; n < TM_ARRAY_COUNT(cellList); n++) {
+		cell = cellList[n];
+		if(!cell || !cell->block) continue;
+		
+		const EntityBlock* block = cell->block;
+		while(block) {
+			for(uint32_t i = 0; i < block->count; i++) {
+				const EntityPositionPair* pair = &block->list[i];
+				if(pair->type != type) continue;
+				if(pair->e.u64 == notthis.u64) continue;
+				
+				f32 d = tm_vec2_dist_sqr(from2, (tm_vec2_t){ pair->x, pair->y });
+				if(d < closest_dist) {
+					closest_dist = d;
+					closest_e = pair->e;
+					closest_pos = (tm_vec2_t){ pair->x, pair->y };
+				}
 			}
+			
+			block = block->next;
 		}
-
-		block = block->next;
 	}
+
+	//TM_PROFILER_END_FUNC_SCOPE();
 
 	return (ClosestEntity){
 		closest_e,
@@ -508,7 +566,7 @@ static void component__register_engine(struct tm_entity_context_o* ctx)
 		.components = { position_tracking_comp, transform_component },
 		.writes = { true, false },
 		.update = engine_update_position_tracking,
-		.filter = engine_filter_has_both_components,
+		//.filter = engine_filter_has_both_components,
 		.inst = (tm_engine_o*)ctx,
 	};
 	tm_entity_api->register_engine(ctx, &position_tracking_component_engine);

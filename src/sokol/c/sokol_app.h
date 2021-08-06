@@ -6245,6 +6245,9 @@ _SOKOL_PRIVATE void _sapp_win32_create_window(void) {
     wndclassw.lpszClassName = L"SOKOLAPP";
     RegisterClassW(&wndclassw);
 
+    int px = CW_USEDEFAULT;
+    int py = CW_USEDEFAULT;
+
     DWORD win_style;
     const DWORD win_ex_style = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
     RECT rect = { 0, 0, 0, 0 };
@@ -6258,17 +6261,31 @@ _SOKOL_PRIVATE void _sapp_win32_create_window(void) {
         rect.right = (int) ((float)_sapp.window_width * _sapp.win32.dpi.window_scale);
         rect.bottom = (int) ((float)_sapp.window_height * _sapp.win32.dpi.window_scale);
     }
+
     AdjustWindowRectEx(&rect, win_style, FALSE, win_ex_style);
     const int win_width = rect.right - rect.left;
     const int win_height = rect.bottom - rect.top;
+
+    // center window
+    if (!_sapp.fullscreen) {
+        const int width = rect.right - rect.left;
+        const int height = rect.bottom - rect.top;
+
+        RECT rectDesktop;
+        HWND hDesktop = GetDesktopWindow();
+        GetWindowRect(hDesktop, &rectDesktop); 
+        px = ((rectDesktop.right - rectDesktop.left)/2 - width/2);
+        py = ((rectDesktop.bottom - rectDesktop.top)/2-  height/2); 
+    }
+
     _sapp.win32.in_create_window = true;
     _sapp.win32.hwnd = CreateWindowExW(
         win_ex_style,               /* dwExStyle */
         L"SOKOLAPP",                /* lpClassName */
         _sapp.window_title_wide,    /* lpWindowName */
         win_style,                  /* dwStyle */
-        CW_USEDEFAULT,              /* X */
-        CW_USEDEFAULT,              /* Y */
+        px,                         /* X */
+        py,                         /* Y */
         win_width,                  /* nWidth */
         win_height,                 /* nHeight */
         NULL,                       /* hWndParent */
